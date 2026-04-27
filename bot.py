@@ -25,6 +25,15 @@ api_hash = '99ad65a5fcd38203621cb20acd2aaba5'
 # قائمة الجلسات (تمت إزالة الجلسة المحددة)
 session_strings = []
 
+# جلسة ثابتة (ضع جلسة حسابك هنا)
+DEFAULT_SESSION = "1ApWapzMBu4scpOoWb6LdlxBlBMa2K0dZsjqf7c075V4IW5MYkdkjmY9wMYG3aKcuVezT5OCkUdwIafSPcc_3IWYx5fpQ66MGHA3l52NYg14tTq_ivddScCDL67cChsKJh-aNME3AnO6HeGkf2edv3LjgJYAV2eOpQJCwelLhDYMulYix8k7fk5oOxFs1his6ISL4jCf2HSu34JVtMFRsRWDcdiT2xt96Gx3_MOr6XvwKHMPNdHZFhVxLI_8WNsXCZZ2HwTp_KVC4I-sD4RRzR-HsKcn5nXCdaBkKoSAb85wbIoSYfR6RgtMfxiL_DxGmFXaj14VJD1_Nn55_uGHug47h6HQn97k="
+
+# حفظ الجلسة
+if DEFAULT_SESSION:
+    session_strings.append(DEFAULT_SESSION)
+    save_session(DEFAULT_SESSION)
+    logger.info("✅ تم إضافة الجلسة الافتراضية")
+
 # قائمة العملاء (الجلسات الفعالة)
 clients = {}
 
