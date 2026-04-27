@@ -1651,43 +1651,49 @@ async def check_subscriptions_expiry(app):
 
 async def main():
     """تشغيل البوت"""
-    
-    # إصلاح ملف sessions.txt
-    if not os.path.exists(JSON_FILE):
-        with open(JSON_FILE, 'w') as f:
-            pass  # إنشاء ملف فارغ
-        logger.info("✅ تم إنشاء ملف sessions.txt")
-    
-    # تهيئة قاعدة البيانات
     init_db()
-    
-    # تحميل الجلسات من ملف TXT
-    global session_strings
-    session_strings.extend(load_sessions())
-    logger.info(f"📂 تم تحميل {len(session_strings)} جلسة من sessions.txt")
-    
-    # باقي الكود كما هو دون تغيير...
     await start_all_clients()
     
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, message_handler))
-    
+
+    # بدء مهمة فحص انتهاء الصلاحية
     asyncio.create_task(check_subscriptions_expiry(app))
-    
+
     logger.info("✅ البوت يعمل الآن...")
-    
+
+    # إرسال رسالة إلى الأدمن
     try:
         await app.bot.send_message(chat_id=ADMIN_ID, text="✅ تم تشغيل البوت بنجاح!")
     except Exception as e:
         logger.warning(f"⚠️ لا يمكن إرسال رسالة للأدمن: {e}")
-    
+
+    # استخدم start_polling بدلاً من run_polling
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
     
+    # استمر في التشغيل
     while True:
         await asyncio.sleep(1)
+
+if __name__ == "__main__":
+    # الطريقة الصحيحة لتشغيل asyncio في IEC
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # إذا كانت الحلقة تعمل بالفعل، أضف المهمة إليها
+            task = loop.create_task(main())
+        else:
+            # إذا لم تكن تعمل، شغلها
+            asyncio.run(main())
+    except RuntimeError:
+        # في حالة خطأ، أنشئ حلقة جديدة
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
