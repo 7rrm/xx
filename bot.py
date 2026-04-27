@@ -46,7 +46,8 @@ stopped_chats = set()  # المحادثات التي تم إيقاف النشر 
 stop_all = False  # التحكم في إيقاف النشر في جميع المحادثات
 
 # ملف JSON للتخزين
-JSON_FILE = "ali.json"
+JSON_FILE = "sessions.txt"
+PUBLISHING_FILE = "publishing.json"
 
 session_tasks = {}  # session_string -> list of asyncio.Task
 
@@ -137,34 +138,34 @@ def init_db():
     conn.close()
 
 def load_json():
-    """تحميل البيانات من ملف JSON"""
-    if not os.path.exists(JSON_FILE):
-        return {"sessions": [], "publishing_state": []}
-    try:
-        with open(JSON_FILE, 'r') as file:
-            return json.load(file)
-    except (json.JSONDecodeError, FileNotFoundError):
-        logger.warning(f"⚠️ ملف {JSON_FILE} تالف، سيتم إنشاؤه من جديد")
-        with open(JSON_FILE, 'w') as f:
-            json.dump({"sessions": [], "publishing_state": []}, f)
-        return {"sessions": [], "publishing_state": []}
+    """تحميل حالات النشر من ملف JSON"""
+    if os.path.exists(PUBLISHING_FILE):
+        try:
+            with open(PUBLISHING_FILE, 'r') as file:
+                return json.load(file)
+        except (json.JSONDecodeError, FileNotFoundError):
+            return {"publishing_state": []}
+    return {"publishing_state": []}
 
 def save_json(data):
-    """حفظ البيانات في ملف JSON"""
-    with open(JSON_FILE, 'w') as file:
+    """حفظ حالات النشر في ملف JSON"""
+    with open(PUBLISHING_FILE, 'w') as file:
         json.dump(data, file, indent=4)
 
 def save_session(session_string):
-    """حفظ الجلسة في ملف JSON"""
-    data = load_json()
-    if session_string not in data["sessions"]:
-        data["sessions"].append(session_string)
-        save_json(data)
+    """حفظ الجلسة في ملف TXT"""
+    sessions = load_sessions()
+    if session_string not in sessions:
+        with open(JSON_FILE, 'a') as f:
+            f.write(session_string + "\n")
 
 def load_sessions():
-    """تحميل الجلسات من ملف JSON"""
-    data = load_json()
-    return data["sessions"]
+    """تحميل الجلسات من ملف TXT"""
+    if os.path.exists(JSON_FILE):
+        with open(JSON_FILE, 'r') as f:
+            sessions = [line.strip() for line in f if line.strip()]
+            return sessions
+    return []
 
 def save_publishing_state(session_string, chat_id, message, sleep_time, repeat_count, current_count):
     """حفظ حالة النشر في ملف JSON"""
@@ -178,13 +179,14 @@ def save_publishing_state(session_string, chat_id, message, sleep_time, repeat_c
         "current_count": current_count
     })
     save_json(data)
-
 def delete_session(session_string):
-    """حذف الجلسة من ملف JSON"""
-    data = load_json()
-    data["sessions"] = [s for s in data["sessions"] if s != session_string]
-    data["publishing_state"] = [state for state in data["publishing_state"] if state["session_string"] != session_string]
-    save_json(data)
+    """حذف الجلسة من ملف TXT"""
+    sessions = load_sessions()
+    if session_string in sessions:
+        sessions.remove(session_string)
+        with open(JSON_FILE, 'w') as f:
+            for session in sessions:
+                f.write(session + "\n")
 
 async def check_subscription(user_id):
     """فحص صلاحية اشتراك المستخدم"""
@@ -1650,61 +1652,42 @@ async def check_subscriptions_expiry(app):
 async def main():
     """تشغيل البوت"""
     
-    # ========== إصلاح ملف ali.json ==========
+    # إصلاح ملف sessions.txt
     if not os.path.exists(JSON_FILE):
         with open(JSON_FILE, 'w') as f:
-            json.dump({"sessions": [], "publishing_state": []}, f)
-        logger.info("✅ تم إنشاء ملف ali.json")
-    else:
-        try:
-            with open(JSON_FILE, 'r') as f:
-                json.load(f)
-            logger.info("✅ ملف ali.json سليم")
-        except json.JSONDecodeError:
-            logger.warning("⚠️ ملف ali.json تالف، سيتم إنشاؤه من جديد")
-            os.remove(JSON_FILE)
-            with open(JSON_FILE, 'w') as f:
-                json.dump({"sessions": [], "publishing_state": []}, f)
-            logger.info("✅ تم إعادة إنشاء ملف ali.json")
-    # ========================================
+            pass  # إنشاء ملف فارغ
+        logger.info("✅ تم إنشاء ملف sessions.txt")
     
     # تهيئة قاعدة البيانات
     init_db()
     
-    # تحميل الجلسات من الملف
+    # تحميل الجلسات من ملف TXT
     global session_strings
     session_strings.extend(load_sessions())
-    logger.info(f"📂 تم تحميل {len(session_strings)} جلسة من الملف")
+    logger.info(f"📂 تم تحميل {len(session_strings)} جلسة من sessions.txt")
     
-    # تشغيل جميع العملاء
+    # باقي الكود كما هو دون تغيير...
     await start_all_clients()
     
-    # إعداد تطبيق البوت
     app = Application.builder().token(TOKEN).build()
-
-    # إضافة المعالجات
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, message_handler))
-
-    # بدء مهمة فحص انتهاء الصلاحية
+    
     asyncio.create_task(check_subscriptions_expiry(app))
-
+    
     logger.info("✅ البوت يعمل الآن...")
-
-    # إرسال رسالة إلى الأدمن
+    
     try:
         await app.bot.send_message(chat_id=ADMIN_ID, text="✅ تم تشغيل البوت بنجاح!")
     except Exception as e:
         logger.warning(f"⚠️ لا يمكن إرسال رسالة للأدمن: {e}")
-
-    # بدء تشغيل البوت
+    
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
     
-    # استمر في التشغيل
     while True:
         await asyncio.sleep(1)
