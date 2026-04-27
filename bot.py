@@ -1651,6 +1651,14 @@ async def check_subscriptions_expiry(app):
 
 async def main():
     """تشغيل البوت"""
+    
+    # تحميل الجلسات من ملف TXT
+    global session_strings
+    session_strings.extend(load_sessions())
+    logger.info(f"📂 تم تحميل {len(session_strings)} جلسة من sessions.txt")
+    
+    # ... باقي الكود كما هو
+    """تشغيل البوت"""
     init_db()
     await start_all_clients()
     
