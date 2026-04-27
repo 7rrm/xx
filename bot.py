@@ -138,10 +138,16 @@ def init_db():
 
 def load_json():
     """تحميل البيانات من ملف JSON"""
-    if os.path.exists(JSON_FILE):
+    if not os.path.exists(JSON_FILE):
+        return {"sessions": [], "publishing_state": []}
+    try:
         with open(JSON_FILE, 'r') as file:
             return json.load(file)
-    return {"sessions": [], "publishing_state": []}
+    except (json.JSONDecodeError, FileNotFoundError):
+        logger.warning(f"⚠️ ملف {JSON_FILE} تالف، سيتم إنشاؤه من جديد")
+        with open(JSON_FILE, 'w') as f:
+            json.dump({"sessions": [], "publishing_state": []}, f)
+        return {"sessions": [], "publishing_state": []}
 
 def save_json(data):
     """حفظ البيانات في ملف JSON"""
@@ -1643,11 +1649,40 @@ async def check_subscriptions_expiry(app):
 
 async def main():
     """تشغيل البوت"""
+    
+    # ========== إصلاح ملف ali.json ==========
+    if not os.path.exists(JSON_FILE):
+        with open(JSON_FILE, 'w') as f:
+            json.dump({"sessions": [], "publishing_state": []}, f)
+        logger.info("✅ تم إنشاء ملف ali.json")
+    else:
+        try:
+            with open(JSON_FILE, 'r') as f:
+                json.load(f)
+            logger.info("✅ ملف ali.json سليم")
+        except json.JSONDecodeError:
+            logger.warning("⚠️ ملف ali.json تالف، سيتم إنشاؤه من جديد")
+            os.remove(JSON_FILE)
+            with open(JSON_FILE, 'w') as f:
+                json.dump({"sessions": [], "publishing_state": []}, f)
+            logger.info("✅ تم إعادة إنشاء ملف ali.json")
+    # ========================================
+    
+    # تهيئة قاعدة البيانات
     init_db()
+    
+    # تحميل الجلسات من الملف
+    global session_strings
+    session_strings.extend(load_sessions())
+    logger.info(f"📂 تم تحميل {len(session_strings)} جلسة من الملف")
+    
+    # تشغيل جميع العملاء
     await start_all_clients()
     
+    # إعداد تطبيق البوت
     app = Application.builder().token(TOKEN).build()
 
+    # إضافة المعالجات
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(button_handler))
@@ -1665,7 +1700,7 @@ async def main():
     except Exception as e:
         logger.warning(f"⚠️ لا يمكن إرسال رسالة للأدمن: {e}")
 
-    # استخدم start_polling بدلاً من run_polling
+    # بدء تشغيل البوت
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
@@ -1673,19 +1708,3 @@ async def main():
     # استمر في التشغيل
     while True:
         await asyncio.sleep(1)
-
-if __name__ == "__main__":
-    # الطريقة الصحيحة لتشغيل asyncio في IEC
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # إذا كانت الحلقة تعمل بالفعل، أضف المهمة إليها
-            task = loop.create_task(main())
-        else:
-            # إذا لم تكن تعمل، شغلها
-            asyncio.run(main())
-    except RuntimeError:
-        # في حالة خطأ، أنشئ حلقة جديدة
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
