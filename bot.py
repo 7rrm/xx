@@ -1,7 +1,6 @@
 import asyncio
 import akinator
 from telethon import TelegramClient, events, Button
-import os
 
 # ========== بياناتك ==========
 API_ID = 21623560
@@ -18,15 +17,6 @@ buttons = [
     [Button.inline("🤔 ربما", b"p"), Button.inline("😕 الأغلب لا", b"pn")]
 ]
 
-# قاموس التحويل للأزرار التي تحتاج أرقاماً
-answer_map = {
-    "y": "y",
-    "n": "n", 
-    "idk": "idk",
-    "p": "p",
-    "pn": "pn"
-}
-
 @bot.on(events.NewMessage(pattern="/start"))
 async def start(event):
     await event.reply(
@@ -40,34 +30,26 @@ async def start(event):
 async def play(event):
     chat_id = event.chat_id
     try:
-        # إنشاء جلسة لعبة جديدة
+        # إنشاء جلسة لعبة جديدة باللغة العربية
         aki = akinator.Akinator()
-        
-        # بدء اللعبة
-        aki.start_game()
-        
-        # الحصول على السؤال الأول - المكتبة تخزنه في aki.question
-        first_question = aki.question
+        aki.start_game(language='ar')  # ← اللغة العربية
         
         # حفظ الجلسة
         games[chat_id] = aki
         
-        # إرسال السؤال
+        # إرسال السؤال الأول
         await event.reply(
-            f"🧞‍♂️ **السؤال 1:**\n\n{first_question}\n\n📊 التقدم: {aki.progression:.0f}%",
+            f"🧞‍♂️ **السؤال 1:**\n\n{aki.question}\n\n📊 التقدم: {aki.progression:.0f}%",
             buttons=buttons
         )
     except Exception as e:
         await event.reply(f"❌ خطأ:\n{str(e)[:200]}")
-        # طباعة الخطأ كاملاً للتشخيص (في سجل الخادم)
-        print(f"Full error: {e}")
 
 @bot.on(events.CallbackQuery)
 async def handle_answer(event):
     chat_id = event.chat_id
     answer = event.data.decode()
     
-    # التحقق من وجود لعبة نشطة
     if chat_id not in games:
         await event.answer("❌ لا توجد لعبة نشطة! أرسل /play", alert=True)
         return
@@ -75,33 +57,22 @@ async def handle_answer(event):
     aki = games[chat_id]
     
     try:
-        # إرسال الإجابة بأمان
         aki.answer(answer)
         
-        # التحقق من أن اللعبة لم تنتهِ بعد
         if not aki.finished:
-            # عرض السؤال التالي
-            next_question = aki.question
             await event.edit(
-                f"🧞‍♂️ **السؤال {aki.step+1}:**\n\n{next_question}\n\n📊 التقدم: {aki.progression:.0f}%",
+                f"🧞‍♂️ **السؤال {aki.step+1}:**\n\n{aki.question}\n\n📊 التقدم: {aki.progression:.0f}%",
                 buttons=buttons
             )
         else:
-            # الحصول على التخمين النهائي
             aki.win()
-            name = aki.name_proposition
-            description = aki.description_proposition
-            photo = aki.photo if hasattr(aki, 'photo') else None
+            result = f"🎉 **تخميني هو:**\n\n✨ **{aki.name_proposition}**\n\n📝 {aki.description_proposition}"
             
-            result = f"🎉 **تخميني هو:**\n\n✨ **{name}**\n\n📝 {description}"
-            
-            # حذف الجلسة
             del games[chat_id]
             
-            # إرسال النتيجة (مع الصورة إن وجدت)
-            if photo:
+            if hasattr(aki, 'photo') and aki.photo:
                 try:
-                    await event.edit(result, file=photo)
+                    await event.edit(result, file=aki.photo)
                 except:
                     await event.edit(result)
             else:
@@ -109,14 +80,13 @@ async def handle_answer(event):
                 
     except Exception as e:
         await event.answer(f"⚠️ خطأ: {str(e)[:50]}", alert=True)
-        print(f"Error in callback: {e}")
 
 @bot.on(events.NewMessage(pattern="/stop"))
 async def stop(event):
     chat_id = event.chat_id
     if chat_id in games:
         del games[chat_id]
-        await event.reply("✅ تم إنهاء اللعبة. أرسل /play للبدء من جديد")
+        await event.reply("✅ تم إنهاء اللعبة")
     else:
         await event.reply("ℹ️ لا توجد لعبة نشطة!")
 
