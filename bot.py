@@ -3,9 +3,9 @@ import akinator
 from telethon import TelegramClient, events, Button
 
 # ========== بياناتك ==========
-API_ID = 21623560
-API_HASH = "8c448c687d43262833a0ab100255fb43"
-BOT_TOKEN = "7145022358:AAHlgguv9tTBkQTwar57Swkb5xiKycptxR8"
+API_ID = 23032698
+API_HASH = "99ad65a5fcd38203621cb20acd2aaba5"
+BOT_TOKEN = "7068624335:AAHagvK1fby2WpnulcN1akudmRTfhIJ42-4"
 # ===========================
 
 bot = TelegramClient("aki_bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
