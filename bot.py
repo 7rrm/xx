@@ -1,7 +1,5 @@
 import asyncio
-import cloudscraper
-import json
-import uuid
+import akinator
 from telethon import TelegramClient, events, Button
 
 # ========== بياناتك ==========
@@ -13,18 +11,12 @@ BOT_TOKEN = "7145022358:AAHlgguv9tTBkQTwar57Swkb5xiKycptxR8"
 bot = TelegramClient("aki_bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 games = {}
 
-# أزرار الإجابة
+# أزرار الإجابة (الأرقام من 0 إلى 4)
 buttons = [
-    [Button.inline("✅ نعم", b"0"), Button.inline("❌ لا", b"1"), Button.inline("❓ لا أعرف", b"2")],
-    [Button.inline("🤔 ربما", b"3"), Button.inline("😕 الأغلب لا", b"4")]
+    [Button.inline("✅ نعم", b"0"), Button.inline("❌ لا", b"1")],
+    [Button.inline("❓ لا أعرف", b"2"), Button.inline("🤔 ربما", b"3")],
+    [Button.inline("😕 الأغلب لا", b"4")]
 ]
-
-# إنشاء سكرابر واحد لجميع الجلسات
-scraper = cloudscraper.create_scraper()
-
-# خادم اللعبة (بالعربية)
-SERVER_URL = "https://ar.akinator.com"
-API_URL = "https://api4.akinator.com"
 
 @bot.on(events.NewMessage(pattern="/start"))
 async def start(event):
@@ -39,31 +31,76 @@ async def start(event):
 async def play(event):
     chat_id = event.chat_id
     
+    # تنظيف أي جلسة قديمة
+    if chat_id in games:
+        del games[chat_id]
+    
     try:
-        # الحصول على جلسة جديدة
-        session_id = str(uuid.uuid4())
-        response = scraper.get(f"{SERVER_URL}/game", params={
-            "session": session_id,
-            "lang": "ar",
-            "theme": "c"
-        })
-        
-        # استخراج البيانات
-        games[chat_id] = {
-            "session": session_id,
-            "step": 0,
-            "progression": 0
-        }
-        
-        # السؤال الأول
-        first_question = "فكر في شخصية واضغط ابدأ"
+        # بدء لعبة جديدة
+        aki = akinator.Akinator()
+        first_question = aki.start_game(language='ar')
+        games[chat_id] = aki
         
         await event.reply(
-            f"🧞‍♂️ **السؤال 1:**\n\n{first_question}\n\n📊 التقدم: 0%",
+            f"🧞‍♂️ **السؤال 1:**\n\n{first_question}\n\n📊 التقدم: {int(aki.progression)}%",
             buttons=buttons
         )
     except Exception as e:
         await event.reply(f"❌ خطأ: {str(e)[:200]}")
 
-print("✅ البوت يعمل... لكن هذا حل مؤقت")
+@bot.on(events.CallbackQuery)
+async def on_button_click(event):
+    chat_id = event.chat_id
+    answer_code = int(event.data.decode())
+    
+    # التحقق من وجود لعبة نشطة
+    if chat_id not in games:
+        await event.answer("❌ لا توجد لعبة نشطة! أرسل /play", alert=True)
+        return
+    
+    aki = games[chat_id]
+    
+    try:
+        # إرسال الإجابة
+        aki.answer(answer_code)
+        
+        # التحقق من التخمين
+        if aki.progression < 80:
+            # عرض السؤال التالي
+            await event.edit(
+                f"🧞‍♂️ **السؤال {aki.step + 1}:**\n\n{aki.question}\n\n📊 التقدم: {int(aki.progression)}%",
+                buttons=buttons
+            )
+        else:
+            # الحصول على التخمين
+            aki.win()
+            guess = aki.first_guess
+            
+            result = f"🎉 **تخميني هو:**\n\n✨ **{guess['name']}**\n\n📝 {guess['description']}"
+            
+            # إرسال الصورة إذا وجدت
+            if guess.get('absolute_picture_path'):
+                try:
+                    await event.edit(result, file=guess['absolute_picture_path'])
+                except:
+                    await event.edit(result)
+            else:
+                await event.edit(result)
+            
+            # حذف الجلسة
+            del games[chat_id]
+            
+    except Exception as e:
+        await event.answer(f"⚠️ خطأ: {str(e)[:100]}", alert=True)
+
+@bot.on(events.NewMessage(pattern="/stop"))
+async def stop(event):
+    chat_id = event.chat_id
+    if chat_id in games:
+        del games[chat_id]
+        await event.reply("✅ تم إنهاء اللعبة")
+    else:
+        await event.reply("ℹ️ لا توجد لعبة نشطة!")
+
+print("✅ بوت Akinator يعمل...")
 bot.run_until_disconnected()
