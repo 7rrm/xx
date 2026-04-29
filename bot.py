@@ -1,15 +1,15 @@
 import asyncio
 import aiohttp
-import re
 import json
 import time
+import random
 from telethon import TelegramClient, events, Button
 
-# ========== بياناتك الجديدة ==========
+# ========== بياناتك ==========
 API_ID = 23032698
 API_HASH = "99ad65a5fcd38203621cb20acd2aaba5"
 BOT_TOKEN = "7068624335:AAHagvK1fby2WpnulcN1akudmRTfhIJ42-4"
-# ===================================
+# ===========================
 
 bot = TelegramClient("aki_bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
@@ -25,80 +25,100 @@ buttons = [
     [Button.inline("😕 الأغلب لا", b"4")]
 ]
 
-# خيارات الإجابة
-answers = ["yes", "no", "idk", "probably", "probably_not"]
+# خوادم بديلة
+SERVERS = [
+    "https://srv3.akinator.com:9279/ws",
+    "https://srv4.akinator.com:9369/ws", 
+    "https://srv5.akinator.com:9397/ws",
+    "https://srv6.akinator.com:9398/ws",
+    "https://srv7.akinator.com:9399/ws",
+    "https://srv8.akinator.com:9400/ws",
+    "https://srv9.akinator.com:9401/ws",
+]
 
 async def start_new_game():
-    """بدء لعبة جديدة والحصول على السؤال الأول"""
+    """بدء لعبة جديدة باستخدام API مباشر"""
     
-    timestamp = int(time.time() * 1000)
+    # استخدام خادم عشوائي
+    server = random.choice(SERVERS)
+    
+    # إنشاء معرف جلسة عشوائي
+    session_id = random.randint(1000000, 9999999)
+    signature = random.randint(100000, 999999)
     
     async with aiohttp.ClientSession() as session:
-        # الحصول على معلومات الجلسة
-        async with session.get("https://ar.akinator.com/game") as resp:
-            html = await resp.text()
-            
-        # استخراج uid و frontaddr
-        uid_match = re.search(r"var uid_ext_session = '([^']+)'", html)
-        frontaddr_match = re.search(r"var frontaddr = '([^']+)'", html)
+        # رابط بدء اللعبة
+        url = f"https://ar.akinator.com/new_session?callback=callback&urlApiWs={server}&partner=1&childMod=false&player=website-desktop&uid_ext_session={session_id}&frontaddr=&constraint=ETAT<>'AV'&soft_constraint=&question_filter="
         
-        if not uid_match or not frontaddr_match:
-            raise Exception("فشل في الحصول على معلومات الجلسة")
-        
-        uid = uid_match.group(1)
-        frontaddr = frontaddr_match.group(1)
-        
-        # الحصول على سيرفر اللعبة
-        server_match = re.search(r'"urlWs":"(https://[^"]+)"', html)
-        if not server_match:
-            raise Exception("فشل في الحصول على السيرفر")
-        
-        server = server_match.group(1)
-        
-        # بدء الجلسة
-        url = f"https://ar.akinator.com/new_session?callback=jQuery&urlApiWs={server}&partner=1&childMod=false&player=website-desktop&uid_ext_session={uid}&frontaddr={frontaddr}&constraint=ETAT<>'AV'&soft_constraint=&question_filter="
-        
-        async with session.get(url) as resp:
-            text = await resp.text()
-            
-        # استخراج JSON
-        json_text = text[text.index('(')+1:text.rindex(')')]
-        data = json.loads(json_text)
-        
-        if data.get("completion") != "OK":
-            raise Exception("فشل في بدء اللعبة")
-        
-        params = data["parameters"]
-        ident = params["identification"]
-        step_info = params["step_information"]
-        
-        return {
-            "session": ident["session"],
-            "signature": ident["signature"],
-            "uid": uid,
-            "frontaddr": frontaddr,
-            "server": server,
-            "question": step_info["question"],
-            "progression": step_info["progression"],
-            "step": step_info["step"]
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Referer": "https://ar.akinator.com/",
+            "X-Requested-With": "XMLHttpRequest"
         }
+        
+        try:
+            async with session.get(url, headers=headers) as resp:
+                text = await resp.text()
+                
+            # استخراج JSON من callback
+            import re
+            json_match = re.search(r'callback\((.*)\)', text)
+            if json_match:
+                json_text = json_match.group(1)
+                data = json.loads(json_text)
+            else:
+                # محاولة مباشرة
+                data = json.loads(text)
+            
+            if data.get("completion") == "KO":
+                raise Exception("الخادم مشغول، حاول مرة أخرى")
+            
+            if data.get("completion") != "OK":
+                raise Exception(f"خطأ: {data.get('completion')}")
+            
+            params = data["parameters"]
+            ident = params["identification"]
+            step_info = params["step_information"]
+            
+            return {
+                "session": ident["session"],
+                "signature": ident["signature"],
+                "server": server,
+                "question": step_info["question"],
+                "progression": step_info["progression"],
+                "step": step_info["step"]
+            }
+            
+        except Exception as e:
+            raise Exception(f"فشل الاتصال: {str(e)}")
 
 async def send_answer(session_data, answer_id):
-    """إرسال إجابة والحصول على السؤال التالي"""
-    
-    timestamp = int(time.time() * 1000)
+    """إرسال إجابة"""
     
     async with aiohttp.ClientSession() as session:
-        url = f"https://ar.akinator.com/answer_api?callback=jQuery&urlApiWs={session_data['server']}&childMod=false&session={session_data['session']}&signature={session_data['signature']}&step={session_data['step']}&answer={answer_id}&frontaddr={session_data['frontaddr']}&question_filter="
+        url = f"https://ar.akinator.com/answer_api?callback=callback&urlApiWs={session_data['server']}&childMod=false&session={session_data['session']}&signature={session_data['signature']}&step={session_data['step']}&answer={answer_id}&frontaddr=&question_filter="
         
-        async with session.get(url) as resp:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Referer": "https://ar.akinator.com/",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        
+        async with session.get(url, headers=headers) as resp:
             text = await resp.text()
         
-        json_text = text[text.index('(')+1:text.rindex(')')]
-        data = json.loads(json_text)
+        import re
+        json_match = re.search(r'callback\((.*)\)', text)
+        if json_match:
+            json_text = json_match.group(1)
+            data = json.loads(json_text)
+        else:
+            data = json.loads(text)
         
         if data.get("completion") != "OK":
-            raise Exception(f"خطأ في الإجابة: {data.get('completion')}")
+            raise Exception(f"خطأ: {data.get('completion')}")
         
         params = data["parameters"]
         
@@ -109,21 +129,31 @@ async def send_answer(session_data, answer_id):
         }
 
 async def get_winner(session_data):
-    """الحصول على التخمين النهائي"""
-    
-    timestamp = int(time.time() * 1000)
+    """الحصول على التخمين"""
     
     async with aiohttp.ClientSession() as session:
-        url = f"https://ar.akinator.com/list?callback=jQuery&childMod=false&session={session_data['session']}&signature={session_data['signature']}&step={session_data['step']}"
+        url = f"https://ar.akinator.com/list?callback=callback&childMod=false&session={session_data['session']}&signature={session_data['signature']}&step={session_data['step']}"
         
-        async with session.get(url) as resp:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Referer": "https://ar.akinator.com/",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        
+        async with session.get(url, headers=headers) as resp:
             text = await resp.text()
         
-        json_text = text[text.index('(')+1:text.rindex(')')]
-        data = json.loads(json_text)
+        import re
+        json_match = re.search(r'callback\((.*)\)', text)
+        if json_match:
+            json_text = json_match.group(1)
+            data = json.loads(json_text)
+        else:
+            data = json.loads(text)
         
         if data.get("completion") != "OK":
-            raise Exception("فشل في الحصول على التخمين")
+            return None
         
         elements = data["parameters"]["elements"]
         if elements:
@@ -143,7 +173,6 @@ async def start(event):
 async def play(event):
     chat_id = event.chat_id
     
-    # حذف أي لعبة سابقة
     if chat_id in games_data:
         del games_data[chat_id]
     
@@ -158,7 +187,7 @@ async def play(event):
             buttons=buttons
         )
     except Exception as e:
-        await msg.edit(f"❌ خطأ: {str(e)[:200]}")
+        await msg.edit(f"❌ خطأ:\n{str(e)[:300]}")
 
 @bot.on(events.CallbackQuery)
 async def handle_answer(event):
@@ -166,7 +195,7 @@ async def handle_answer(event):
     answer_id = int(event.data.decode())
     
     if chat_id not in games_data:
-        await event.answer("❌ لا توجد لعبة نشطة! أرسل /play", alert=True)
+        await event.answer("❌ لا توجد لعبة! أرسل /play", alert=True)
         return
     
     game = games_data[chat_id]
@@ -174,13 +203,11 @@ async def handle_answer(event):
     try:
         result = await send_answer(game, answer_id)
         
-        # تحديث البيانات
         game["question"] = result["question"]
         game["progression"] = result["progression"]
         game["step"] = result["step"]
         games_data[chat_id] = game
         
-        # التحقق من التخمين
         if float(result["progression"]) >= 80:
             winner = await get_winner(game)
             
@@ -195,19 +222,17 @@ async def handle_answer(event):
                 else:
                     await event.edit(text)
             else:
-                await event.edit("❓ لم أستطع تخمين شخصيتك! ابدأ من جديد بـ /play")
+                await event.edit("❓ لم أستطع التخمين! ابدأ بـ /play")
             
-            # حذف الجلسة
             del games_data[chat_id]
         else:
-            # عرض السؤال التالي
             await event.edit(
                 f"🧞‍♂️ **السؤال {int(result['step']) + 1}:**\n\n{result['question']}\n\n📊 التقدم: {result['progression']}%",
                 buttons=buttons
             )
             
     except Exception as e:
-        await event.answer(f"⚠️ خطأ: {str(e)[:100]}", alert=True)
+        await event.answer(f"⚠️ خطأ: {str(e)[:80]}", alert=True)
         if chat_id in games_data:
             del games_data[chat_id]
 
@@ -216,7 +241,7 @@ async def stop(event):
     chat_id = event.chat_id
     if chat_id in games_data:
         del games_data[chat_id]
-        await event.reply("✅ تم إنهاء اللعبة. أرسل /play للبدء من جديد")
+        await event.reply("✅ تم إنهاء اللعبة")
     else:
         await event.reply("ℹ️ لا توجد لعبة نشطة!")
 
