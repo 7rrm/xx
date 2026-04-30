@@ -10,18 +10,15 @@ from telethon.tl.types import Message
 from groq import Groq
 import logging
 
-# تحميل متغيرات البيئة
-load_dotenv()
-
 # إعدادات التسجيل للأخطاء
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ========================
-# 🔐 إعدادات API (استبدلها فوراً!)
+# 🔐 إعدادات API (⚠️ استبدلها فوراً!)
 # ========================
-API_ID = 21623560  # ⚠️ استبدل هذا فوراً!
-API_HASH = "8c448c687d43262833a0ab100255fb43"  # ⚠️ استبدل هذا فوراً!
+API_ID = 21623560
+API_HASH = "8c448c687d43262833a0ab100255fb43"
 BOT_TOKEN = "7068624335:AAHagvK1fby2WpnulcN1akudmRTfhIJ42-4"
 GROQ_API_KEY = "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"
 
