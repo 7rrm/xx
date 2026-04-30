@@ -1,5 +1,6 @@
 
 telethon==1.34.0
+telebot
 python-telegram-bot==20.7
 flask==2.3.3
 aiohttp==3.9.1
