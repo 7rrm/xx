@@ -5,6 +5,8 @@
 
 import asyncio
 import os
+import signal
+import sys
 from telethon import TelegramClient, events
 from telethon.tl.types import Message
 from groq import Groq
@@ -329,19 +331,37 @@ async def handle_message(event: events.NewMessage.Event):
             await event.reply(response)
 
 # ========================
-# تشغيل البوت
+# تشغيل البوت مع معالجة أفضل للإغلاق
 # ========================
 async def main():
     """تشغيل البوت"""
     logger.info("🤖 بدء تشغيل بوت تيليجرام مع Groq AI (باستخدام Telethon)...")
     logger.info(f"✅ يتوفر {len(AVAILABLE_MODELS)} نموذجاً")
-    logger.info("🎯 البوت يعمل الآن! اضغط Ctrl+C للإيقاف")
+    logger.info("🎯 البوت يعمل الآن!")
     
-    await bot.start()
+    # معالجة إشارات الإيقاف
+    def signal_handler():
+        logger.info("🛑 استلام إشارة إيقاف...")
+        asyncio.create_task(shutdown())
+    
+    async def shutdown():
+        await bot.disconnect()
+        logger.info("✅ تم إيقاف البوت بنجاح")
+        sys.exit(0)
+    
+    # تسجيل معالجات الإشارات
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda s, f: signal_handler())
+    
     await bot.run_until_disconnected()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("🛑 تم إيقاف البوت")
+        logger.info("🛑 تم إيقاف البوت يدوياً")
+    except RuntimeError as e:
+        if "Event loop is closed" in str(e):
+            logger.info("تم إغلاق الحلقة بشكل طبيعي")
+        else:
+            logger.error(f"خطأ غير متوقع: {e}")
