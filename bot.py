@@ -27,17 +27,17 @@ except Exception as e:
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# الإعدادات الافتراضية
+# الإعدادات الافتراضية (تم تقليل max_tokens)
 DEFAULT_MODEL = "openai/gpt-oss-120b"
 DEFAULT_TEMPERATURE = 1
-DEFAULT_MAX_TOKENS = 8192
+DEFAULT_MAX_TOKENS = 2000  # تم التخفيض من 8192 إلى 2000
 
 # قائمة النماذج المتاحة
 AVAILABLE_MODELS = {
     "1": {"name": "openai/gpt-oss-120b", "desc": "GPT-OSS 120B - نموذج متقدم"},
     "2": {"name": "openai/gpt-oss-20b", "desc": "GPT-OSS 20B - نسخة أسرع"},
-    "3": {"name": "llama3-70b-8192", "desc": "Llama 3 70B - نموذج قوي"},
-    "4": {"name": "llama3-8b-8192", "desc": "Llama 3 8B - سريع"},
+    "3": {"name": "llama-3.3-70b-versatile", "desc": "Llama 3.3 70B - نموذج قوي"},
+    "4": {"name": "llama-3.1-8b-instant", "desc": "Llama 3.1 8B - سريع جداً"},
     "5": {"name": "mixtral-8x7b-32768", "desc": "Mixtral - سياق طويل"},
     "6": {"name": "gemma2-9b-it", "desc": "Gemma 2 9B - من Google"}
 }
@@ -59,6 +59,7 @@ def get_ai_response(user_id, user_message):
     try:
         settings = get_user_settings(user_id)
         
+        # إدارة سجل المحادثة - الاحتفاظ بآخر 5 رسائل فقط (بدلاً من 10)
         if user_id not in user_conversations:
             user_conversations[user_id] = []
         
@@ -67,37 +68,49 @@ def get_ai_response(user_id, user_message):
             "content": user_message
         })
         
-        if len(user_conversations[user_id]) > 10:
-            user_conversations[user_id] = user_conversations[user_id][-10:]
+        # تقليل عدد الرسائل المحفوظة إلى 6 لتجنب تجاوز الحد
+        if len(user_conversations[user_id]) > 6:
+            user_conversations[user_id] = user_conversations[user_id][-6:]
+        
+        # حساب حجم الرموز تقريباً (حرف واحد ≈ رمز)
+        estimated_tokens = len(str(user_conversations[user_id])) * 0.75
+        print(f"📊 حجم المحادثة التقديري: {int(estimated_tokens)} رمز")
         
         completion = groq_client.chat.completions.create(
             model=settings["model"],
             messages=user_conversations[user_id],
             temperature=settings["temperature"],
-            max_tokens=settings["max_tokens"],
+            max_tokens=settings["max_tokens"],  # الآن 2000 فقط
             top_p=1,
-            stream=True
+            stream=False  # تغيير إلى False لتجنب مشاكل الدفق
         )
         
-        full_response = ""
-        for chunk in completion:
-            if chunk.choices[0].delta.content:
-                full_response += chunk.choices[0].delta.content
+        full_response = completion.choices[0].message.content
         
         if full_response.strip():
-            user_conversations[user_id].append({
-                "role": "assistant",
-                "content": full_response
-            })
+            # تجنب تخزين ردود طويلة جداً
+            if len(full_response) < 3000:  # تخزين فقط الردود المعقولة
+                user_conversations[user_id].append({
+                    "role": "assistant",
+                    "content": full_response
+                })
         
         return full_response if full_response.strip() else "عذراً، لم أتمكن من توليد رد."
     
     except Exception as e:
         error_msg = str(e)
-        print(f"خطأ: {error_msg}")
+        print(f"❌ خطأ: {error_msg}")
+        
+        # معالجة خطأ تجاوز الحد بشكل خاص
+        if "rate_limit_exceeded" in error_msg.lower() or "request too large" in error_msg.lower():
+            # مسح المحادثة تلقائياً عند تجاوز الحد
+            user_conversations[user_id] = []
+            return "⚠️ **تم تجاوز حد الرموز المتاحة.**\n\nتم مسح سجل المحادثة تلقائياً. الرجاء إعادة إرسال سؤالك.\n\n💡 *نصيحة:* استخدم /clear يدوياً إذا تكررت المشكلة."
+        
         if "rate_limit" in error_msg.lower():
-            return "⚠️ تم تجاوز حد الطلبات المجانية."
-        return f"⚠️ حدث خطأ: {error_msg[:100]}"
+            return "⚠️ تم تجاوز حد الطلبات (1000 طلب/يوم). الرجاء المحاولة لاحقاً."
+        
+        return f"⚠️ حدث خطأ: {error_msg[:150]}"
 
 # ========================
 # أوامر البوت
@@ -108,10 +121,16 @@ def send_welcome(message):
     bot.reply_to(
         message,
         "🤖 *مرحباً بك في بوت Groq AI!*\n\n"
-        "🎛️ يمكنك تغيير النموذج عبر /model\n"
-        "🌡️ تغيير درجة الحرارة عبر /temp\n"
-        "🗑️ مسح المحادثة عبر /clear\n"
-        "ℹ️ المساعدة عبر /help",
+        "✨ *المميزات:*\n"
+        "• ردود سريعة جداً\n"
+        "• 6 نماذج مختلفة للاختيار\n"
+        "• يتذكر آخر 3 محادثات فقط (لتوفير الرموز)\n\n"
+        "🎛️ *الأوامر:*\n"
+        "/model - تغيير النموذج\n"
+        "/temp [0-2] - تغيير الإبداع\n"
+        "/settings - الإعدادات الحالية\n"
+        "/clear - مسح المحادثة\n"
+        "/help - المساعدة",
         parse_mode='Markdown'
     )
 
@@ -137,11 +156,11 @@ def change_model(message):
             settings = get_user_settings(user_id)
             settings["model"] = AVAILABLE_MODELS[choice]["name"]
             user_settings[user_id] = settings
-            bot.reply_to(msg, f"✅ تم تغيير النموذج إلى:\n*{AVAILABLE_MODELS[choice]['desc']}*", parse_mode='Markdown')
-            if user_id in user_conversations:
-                user_conversations[user_id] = []
+            # مسح المحادثة عند تغيير النموذج
+            user_conversations[user_id] = []
+            bot.reply_to(msg, f"✅ تم تغيير النموذج إلى:\n*{AVAILABLE_MODELS[choice]['desc']}*\n\n🗑️ تم مسح سجل المحادثة.", parse_mode='Markdown')
         else:
-            bot.reply_to(msg, "❌ رقم غير صالح")
+            bot.reply_to(msg, "❌ رقم غير صالح (1-6)")
         
         bot.clear_step_handler_by_chat_id(user_id)
     
@@ -154,7 +173,7 @@ def change_temperature(message):
     try:
         parts = message.text.split()
         if len(parts) < 2:
-            bot.reply_to(message, "⚠️ مثال: `/temp 1.5`\nالمدى: 0-2", parse_mode='Markdown')
+            bot.reply_to(message, "🌡️ *تغيير درجة الحرارة*\n\nالمدى: 0 إلى 2\nمثال: `/temp 1.5`\n\n• 0 = ردود ثابتة ومتوقعة\n• 1 = إبداع متوسط\n• 2 = ردود عشوائية وإبداعية", parse_mode='Markdown')
             return
         
         temp_value = float(parts[1])
@@ -167,13 +186,13 @@ def change_temperature(message):
         else:
             bot.reply_to(message, "❌ القيمة يجب أن تكون بين 0 و 2")
     except ValueError:
-        bot.reply_to(message, "❌ أرسل رقماً صحيحاً")
+        bot.reply_to(message, "❌ أرسل رقماً صحيحاً. مثال: `/temp 1.5`", parse_mode='Markdown')
 
 @bot.message_handler(commands=['clear'])
 def clear_history(message):
     user_id = message.chat.id
     user_conversations[user_id] = []
-    bot.reply_to(message, "✅ تم مسح سجل المحادثة")
+    bot.reply_to(message, "✅ تم مسح سجل المحادثة بنجاح!\n\nيمكنك الآن بدء محادثة جديدة.", parse_mode='Markdown')
 
 @bot.message_handler(commands=['settings'])
 def show_settings(message):
@@ -186,12 +205,17 @@ def show_settings(message):
             model_desc = model["desc"]
             break
     
+    # حساب عدد الرسائل في المحادثة
+    conv_count = len(user_conversations.get(user_id, []))
+    
     bot.reply_to(
         message,
-        f"⚙️ *الإعدادات:*\n\n"
-        f"📌 النموذج: {model_desc}\n"
-        f"🌡️ الحرارة: {settings['temperature']}\n"
-        f"📝 الحد الأقصى: {settings['max_tokens']}",
+        f"⚙️ *الإعدادات الحالية*\n\n"
+        f"📌 **النموذج:** {model_desc}\n"
+        f"🌡️ **درجة الحرارة:** {settings['temperature']}\n"
+        f"📝 **الحد الأقصى للرد:** {settings['max_tokens']} رمز\n"
+        f"💬 **رسائل المحادثة:** {conv_count}\n\n"
+        f"🔄 لمسح المحادثة استخدم /clear",
         parse_mode='Markdown'
     )
 
@@ -199,12 +223,17 @@ def show_settings(message):
 def send_help(message):
     bot.reply_to(
         message,
-        "📚 *الأوامر:*\n"
-        "/model - تغيير النموذج\n"
-        "/temp [0-2] - تغيير الحرارة\n"
-        "/settings - الإعدادات الحالية\n"
-        "/clear - مسح المحادثة\n"
-        "/start - الترحيب",
+        "📚 *الأوامر المتاحة*\n\n"
+        "**التحكم بالنماذج**\n"
+        "/model - تغيير نموذج الذكاء الاصطناعي\n"
+        "/temp [0-2] - تغيير درجة الإبداع\n"
+        "/settings - عرض الإعدادات الحالية\n\n"
+        "**إدارة المحادثة**\n"
+        "/clear - مسح سجل المحادثة\n"
+        "/start - عرض رسالة الترحيب\n\n"
+        "**معلومات**\n"
+        "/help - عرض هذه المساعدة\n\n"
+        "💡 *نصيحة:* إذا واجهت خطأ تجاوز الحد، استخدم /clear فوراً",
         parse_mode='Markdown'
     )
 
@@ -217,6 +246,7 @@ def echo_all(message):
     bot.send_chat_action(user_id, 'typing')
     response = get_ai_response(user_id, message.text)
     
+    # تقسيم الرد الطويل
     if len(response) > 4000:
         for x in range(0, len(response), 4000):
             bot.reply_to(message, response[x:x+4000])
@@ -229,4 +259,5 @@ def echo_all(message):
 if __name__ == "__main__":
     print("🤖 بدء تشغيل البوت...")
     print("✅ البوت يعمل الآن!")
+    print("📊 الإعدادات: max_tokens=2000, context=6 messages")
     bot.infinity_polling(timeout=60, long_polling_timeout=60)
