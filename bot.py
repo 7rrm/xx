@@ -1,39 +1,38 @@
-import telebot
+"""
+بوت تليجرام يعمل مع Groq AI ويدعم Telethon
+يدعم 17 نموذجاً مختلفاً من Groq
+"""
+
+import asyncio
+import os
+from telethon import TelegramClient, events
+from telethon.tl.types import Message
 from groq import Groq
-import time
+from dotenv import load_dotenv
+import logging
+
+# تحميل متغيرات البيئة
+load_dotenv()
+
+# إعدادات التسجيل للأخطاء
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ========================
-# 🔐 الإعدادات
+# 🔐 إعدادات API (استبدلها فوراً!)
 # ========================
-TELEGRAM_BOT_TOKEN = "7068624335:AAHagvK1fby2WpnulcN1akudmRTfhIJ42-4"
+API_ID = 21623560  # ⚠️ استبدل هذا فوراً!
+API_HASH = "8c448c687d43262833a0ab100255fb43"  # ⚠️ استبدل هذا فوراً!
+BOT_TOKEN = "7068624335:AAHagvK1fby2WpnulcN1akudmRTfhIJ42-4"
 GROQ_API_KEY = "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"
-
-# ========================
-# إلغاء الـ webhook أولاً
-# ========================
-print("🔄 جاري إلغاء webhook الحالي...")
-temp_bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-try:
-    result = temp_bot.remove_webhook()
-    if result:
-        print("✅ تم إلغاء webhook بنجاح")
-    time.sleep(1)
-except Exception as e:
-    print(f"⚠️ ملاحظة: {e}")
-
-# ========================
-# تهيئة البوت الرئيسي
-# ========================
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-groq_client = Groq(api_key=GROQ_API_KEY)
 
 # الإعدادات الافتراضية
 DEFAULT_MODEL = "openai/gpt-oss-120b"
-DEFAULT_TEMPERATURE = 1
+DEFAULT_TEMPERATURE = 1.0
 DEFAULT_MAX_TOKENS = 2000
 
 # ========================
-# قائمة جميع النماذج المتاحة في Groq
+# قائمة جميع النماذج المتاحة في Groq (17 نموذجاً)
 # ========================
 AVAILABLE_MODELS = {
     # 🤖 نماذج الإنتاج (Production)
@@ -43,7 +42,7 @@ AVAILABLE_MODELS = {
     "4": {"name": "llama-3.1-8b-instant", "desc": "Llama 3.1 8B - سريع جداً (560 رمز/ثانية)"},
     "5": {"name": "mixtral-8x7b-32768", "desc": "Mixtral 8x7B - سياق طويل 32K"},
     
-    # 🎯 نماذج المعاينة الجديدة (Preview)
+    # 🎯 نماذج المعاينة (Preview)
     "6": {"name": "meta-llama/llama-4-scout-17b-16e-instruct", "desc": "Llama 4 Scout 17B - أحدث نماذج Meta"},
     "7": {"name": "meta-llama/llama-4-maverick-17b-128e-instruct", "desc": "Llama 4 Maverick 17B - متقدم"},
     "8": {"name": "qwen/qwen3-32b", "desc": "Qwen 3 32B - من阿里巴巴 (استدلال قوي)"},
@@ -51,21 +50,27 @@ AVAILABLE_MODELS = {
     "10": {"name": "qwen/qwen3-8b", "desc": "Qwen 3 8B - نسخة سريعة"},
     "11": {"name": "moonshotai/kimi-k2-instruct-0905", "desc": "Kimi K2 - سياق عملاق 262K رمز"},
     "12": {"name": "deepseek-r1-distill-llama-70b", "desc": "DeepSeek R1 - استدلال متقدم"},
-    "13": {"name": "mistral-saba-24b", "desc": "Mistral Saba - ممتاز للغة العربية"},
+    "13": {"name": "mistral-saba-24b", "desc": "Mistral Saba - ممتاز للغة العربية ⭐"},
     "14": {"name": "allam-2-7b", "desc": "ALLaM 2 7B - نموذج عربي"},
     "15": {"name": "gemma2-9b-it", "desc": "Gemma 2 9B - من Google"},
-    "16": {"name": "google/gemma-2-2b-it", "desc": "Gemma 2 2B - خفيف وسريع جداً"},
     
     # 🛠️ الأنظمة المتكاملة
-    "17": {"name": "groq/compound", "desc": "Compound - نظام متكامل (بحث ويب + كود)"},
-    "18": {"name": "groq/compound-mini", "desc": "Compound Mini - نسخة أخف من النظام المتكامل"},
+    "16": {"name": "groq/compound", "desc": "Compound - نظام متكامل (بحث ويب + كود)"},
+    "17": {"name": "groq/compound-mini", "desc": "Compound Mini - نسخة أخف"},
 }
 
-# تخزين إعدادات المستخدمين
+# ========================
+# تهيئة العميل
+# ========================
+bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+groq_client = Groq(api_key=GROQ_API_KEY)
+
+# تخزين بيانات المستخدمين
 user_settings = {}
 user_conversations = {}
 
-def get_user_settings(user_id):
+def get_user_settings(user_id: int) -> dict:
+    """الحصول على إعدادات المستخدم"""
     if user_id not in user_settings:
         user_settings[user_id] = {
             "model": DEFAULT_MODEL,
@@ -74,7 +79,8 @@ def get_user_settings(user_id):
         }
     return user_settings[user_id]
 
-def get_ai_response(user_id, user_message):
+async def get_ai_response(user_id: int, user_message: str) -> str:
+    """الحصول على رد من Groq AI"""
     try:
         settings = get_user_settings(user_id)
         
@@ -91,6 +97,7 @@ def get_ai_response(user_id, user_message):
         if len(user_conversations[user_id]) > 6:
             user_conversations[user_id] = user_conversations[user_id][-6:]
         
+        # استدعاء Groq API
         completion = groq_client.chat.completions.create(
             model=settings["model"],
             messages=user_conversations[user_id],
@@ -113,7 +120,7 @@ def get_ai_response(user_id, user_message):
     
     except Exception as e:
         error_msg = str(e)
-        print(f"❌ خطأ: {error_msg}")
+        logger.error(f"خطأ للمستخدم {user_id}: {error_msg}")
         
         if "rate_limit_exceeded" in error_msg.lower() or "request too large" in error_msg.lower():
             user_conversations[user_id] = []
@@ -122,16 +129,19 @@ def get_ai_response(user_id, user_message):
         if "rate_limit" in error_msg.lower():
             return "⚠️ تم تجاوز حد الطلبات (1000 طلب/يوم). الرجاء المحاولة لاحقاً."
         
+        if "does not exist" in error_msg.lower():
+            return "⚠️ هذا النموذج غير متاح حالياً. استخدم /models لرؤية النماذج المتاحة."
+        
         return f"⚠️ حدث خطأ: {error_msg[:150]}"
 
 # ========================
 # أوامر البوت
 # ========================
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(
-        message,
+@bot.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    """رسالة الترحيب"""
+    await event.reply(
         "🤖 *مرحباً بك في بوت Groq AI المتعدد النماذج!*\n\n"
         f"✨ يتوفر *{len(AVAILABLE_MODELS)} نموذجاً* مختلفاً للاختيار!\n"
         "• ردود فائقة السرعة ⚡\n"
@@ -140,20 +150,20 @@ def send_welcome(message):
         "🎛️ *الأوامر:*\n"
         "/models - عرض جميع النماذج\n"
         "/model - تغيير النموذج\n"
-        "/temp [0-2] - تغيير درجة الإبداع\n"
+        "/temp [0-2] - تغيير درجة الحرارة\n"
         "/settings - الإعدادات الحالية\n"
-        "/clear - مسح المحادثة\n"
+        "/clear - مسح سجل المحادثة\n"
         "/help - المساعدة",
-        parse_mode='Markdown'
+        link_preview=False
     )
 
-@bot.message_handler(commands=['models'])
-def list_all_models(message):
+@bot.on(events.NewMessage(pattern='/models'))
+async def list_models_handler(event):
     """عرض جميع النماذج المتاحة"""
-    user_id = message.chat.id
+    user_id = event.sender_id
     current_model = get_user_settings(user_id)["model"]
     
-    # تقسيم النماذج إلى فئات
+    # تجميع النماذج حسب الفئات
     production = []
     preview = []
     systems = []
@@ -161,7 +171,7 @@ def list_all_models(message):
     for key, model in AVAILABLE_MODELS.items():
         if "compound" in model["name"].lower():
             systems.append(f"• `{model['name']}`\n  {model['desc']}")
-        elif any(x in model["name"].lower() for x in ["llama-4", "qwen", "kimi", "deepseek", "saba", "allam", "gemma-2-2b"]):
+        elif any(x in model["name"].lower() for x in ["llama-4", "qwen", "kimi", "deepseek", "saba", "allam"]):
             preview.append(f"• `{model['name']}`\n  {model['desc']}")
         else:
             production.append(f"• `{model['name']}`\n  {model['desc']}")
@@ -169,87 +179,94 @@ def list_all_models(message):
     msg = f"🎯 *النماذج المتاحة في Groq* (إجمالي {len(AVAILABLE_MODELS)})\n\n"
     msg += f"✨ *النموذج الحالي:* `{current_model}`\n\n"
     
-    msg += "🤖 **نماذج الإنتاج:**\n" + "\n".join(production[:5]) + "\n\n"
-    msg += "🔬 **نماذج المعاينة:**\n" + "\n".join(preview[:8]) + "\n\n" 
-    msg += "🛠️ **الأنظمة المتكاملة:**\n" + "\n".join(systems) + "\n\n"
+    if production:
+        msg += "🤖 **نماذج الإنتاج:**\n" + "\n".join(production[:5]) + "\n\n"
+    if preview:
+        msg += "🔬 **نماذج المعاينة:**\n" + "\n".join(preview[:8]) + "\n\n"
+    if systems:
+        msg += "🛠️ **الأنظمة المتكاملة:**\n" + "\n".join(systems) + "\n\n"
     
     msg += "💡 *لتغيير النموذج استخدم /model*"
     
-    bot.reply_to(message, msg, parse_mode='Markdown')
+    await event.reply(msg, link_preview=False)
 
-@bot.message_handler(commands=['model'])
-def change_model(message):
-    user_id = message.chat.id
+@bot.on(events.NewMessage(pattern='/model'))
+async def change_model_handler(event):
+    """تغيير النموذج الحالي"""
+    user_id = event.sender_id
     
-    # بناء القائمة مع الترقيم
+    # بناء القائمة
     models_list = f"🎛️ *اختر نموذجاً* (إجمالي {len(AVAILABLE_MODELS)}):\n\n"
     
-    # تجميع النماذج
     for key, model in AVAILABLE_MODELS.items():
         current = " ✅" if get_user_settings(user_id)["model"] == model["name"] else ""
         models_list += f"`{key}` - {model['desc']}{current}\n"
     
     models_list += f"\n*أرسل رقم النموذج* (1-{len(AVAILABLE_MODELS)})"
     
-    # تقسيم القائمة إذا كانت طويلة جداً
-    if len(models_list) > 4000:
-        models_list = models_list[:3500] + "\n... (قائمة طويلة، الرجاء إرسال الرقم المطلوب)"
+    await event.reply(models_list)
     
-    sent_msg = bot.reply_to(message, models_list, parse_mode='Markdown')
-    
-    def handle_model_choice(msg):
-        if msg.chat.id != user_id:
+    # انتظار رد المستخدم
+    @bot.on(events.NewMessage(chats=user_id))
+    async def handle_model_choice(e):
+        if e.sender_id != user_id:
             return
         
-        choice = msg.text.strip()
+        choice = e.raw_text.strip()
         if choice in AVAILABLE_MODELS:
             settings = get_user_settings(user_id)
             settings["model"] = AVAILABLE_MODELS[choice]["name"]
             user_settings[user_id] = settings
-            user_conversations[user_id] = []
-            bot.reply_to(
-                msg, 
-                f"✅ تم تغيير النموذج إلى:\n*{AVAILABLE_MODELS[choice]['desc']}*\n\n🗑️ تم مسح سجل المحادثة.", 
-                parse_mode='Markdown'
-            )
+            if user_id in user_conversations:
+                user_conversations[user_id] = []
+            await e.reply(f"✅ تم تغيير النموذج إلى:\n*{AVAILABLE_MODELS[choice]['desc']}*\n\n🗑️ تم مسح سجل المحادثة.")
         else:
-            bot.reply_to(msg, f"❌ رقم غير صالح. الرجاء إرسال رقم بين 1 و {len(AVAILABLE_MODELS)}")
+            await e.reply(f"❌ رقم غير صالح. الرجاء إرسال رقم بين 1 و {len(AVAILABLE_MODELS)}")
         
-        bot.clear_step_handler_by_chat_id(user_id)
-    
-    bot.register_next_step_handler(sent_msg, handle_model_choice)
+        # إزالة المعالج المؤقت
+        bot.remove_event_handler(handle_model_choice)
 
-@bot.message_handler(commands=['temp'])
-def change_temperature(message):
-    user_id = message.chat.id
+@bot.on(events.NewMessage(pattern='/temp(?:\\s+(\\d+(?:\\.\\d+)?))?'))
+async def change_temperature_handler(event):
+    """تغيير درجة الحرارة"""
+    user_id = event.sender_id
+    parts = event.raw_text.split()
+    
+    if len(parts) < 2:
+        await event.reply(
+            "🌡️ *تغيير درجة الحرارة*\n\n"
+            "المدى: 0 إلى 2\n"
+            "مثال: `/temp 1.5`\n\n"
+            "• 0 = ردود ثابتة ومتوقعة\n"
+            "• 1 = إبداع متوسط\n"
+            "• 2 = ردود عشوائية وإبداعية"
+        )
+        return
     
     try:
-        parts = message.text.split()
-        if len(parts) < 2:
-            bot.reply_to(message, "🌡️ *تغيير درجة الحرارة*\n\nالمدى: 0 إلى 2\nمثال: `/temp 1.5`\n\n• 0 = ردود ثابتة\n• 1 = إبداع متوسط\n• 2 = ردود عشوائية", parse_mode='Markdown')
-            return
-        
         temp_value = float(parts[1])
         
         if 0 <= temp_value <= 2:
             settings = get_user_settings(user_id)
             settings["temperature"] = temp_value
             user_settings[user_id] = settings
-            bot.reply_to(message, f"✅ تم تغيير درجة الحرارة إلى *{temp_value}*", parse_mode='Markdown')
+            await event.reply(f"✅ تم تغيير درجة الحرارة إلى *{temp_value}*")
         else:
-            bot.reply_to(message, "❌ القيمة يجب أن تكون بين 0 و 2")
+            await event.reply("❌ القيمة يجب أن تكون بين 0 و 2")
     except ValueError:
-        bot.reply_to(message, "❌ أرسل رقماً صحيحاً. مثال: `/temp 1.5`", parse_mode='Markdown')
+        await event.reply("❌ أرسل رقماً صحيحاً. مثال: `/temp 1.5`")
 
-@bot.message_handler(commands=['clear'])
-def clear_history(message):
-    user_id = message.chat.id
+@bot.on(events.NewMessage(pattern='/clear'))
+async def clear_history_handler(event):
+    """مسح سجل المحادثة"""
+    user_id = event.sender_id
     user_conversations[user_id] = []
-    bot.reply_to(message, "✅ تم مسح سجل المحادثة بنجاح!", parse_mode='Markdown')
+    await event.reply("✅ تم مسح سجل المحادثة بنجاح!")
 
-@bot.message_handler(commands=['settings'])
-def show_settings(message):
-    user_id = message.chat.id
+@bot.on(events.NewMessage(pattern='/settings'))
+async def settings_handler(event):
+    """عرض الإعدادات الحالية"""
+    user_id = event.sender_id
     settings = get_user_settings(user_id)
     
     model_desc = "نموذج غير معروف"
@@ -260,56 +277,75 @@ def show_settings(message):
     
     conv_count = len(user_conversations.get(user_id, []))
     
-    bot.reply_to(
-        message,
+    await event.reply(
         f"⚙️ *الإعدادات الحالية*\n\n"
         f"📌 **النموذج:** {model_desc}\n"
         f"🌡️ **درجة الحرارة:** {settings['temperature']}\n"
         f"📝 **الحد الأقصى للرد:** {settings['max_tokens']} رمز\n"
         f"💬 **رسائل المحادثة:** {conv_count}\n\n"
-        f"🔄 *لرؤية جميع النماذج استخدم /models*",
-        parse_mode='Markdown'
+        f"🔄 *لرؤية جميع النماذج استخدم /models*"
     )
 
-@bot.message_handler(commands=['help'])
-def send_help(message):
-    bot.reply_to(
-        message,
+@bot.on(events.NewMessage(pattern='/help'))
+async def help_handler(event):
+    """رسالة المساعدة"""
+    await event.reply(
         "📚 *الأوامر المتاحة*\n\n"
         "**📋 قائمة النماذج**\n"
-        "/models - عرض جميع الـ 18 نموذجاً\n"
+        "/models - عرض جميع الـ 17 نموذجاً\n"
         "/model - تغيير النموذج\n\n"
         "**⚙️ التحكم**\n"
-        "/temp [0-2] - تغيير درجة الإبداع\n"
+        "/temp [0-2] - تغيير درجة الحرارة\n"
         "/settings - عرض الإعدادات\n"
-        "/clear - مسح المحادثة\n\n"
+        "/clear - مسح سجل المحادثة\n\n"
         "**ℹ️ معلومات**\n"
         "/start - الترحيب\n"
         "/help - هذه المساعدة\n\n"
-        "💡 *ملاحظة:* بعض النماذج قد تكون تجريبية",
-        parse_mode='Markdown'
+        "💡 *ملاحظة:* البوت يتذكر آخر 6 رسائل للحفاظ على السياق"
     )
 
-@bot.message_handler(func=lambda message: True)
-def echo_all(message):
-    if message.text.startswith('/'):
+# ========================
+# معالج الرسائل العادية
+# ========================
+@bot.on(events.NewMessage)
+async def handle_message(event: events.NewMessage.Event):
+    """الرد على الرسائل العادية"""
+    # تجاهل الأوامر
+    if event.raw_text.startswith('/'):
         return
     
-    user_id = message.chat.id
-    bot.send_chat_action(user_id, 'typing')
-    response = get_ai_response(user_id, message.text)
+    # تجاهل الرسائل من البوت نفسه
+    if event.out:
+        return
     
-    if len(response) > 4000:
-        for x in range(0, len(response), 4000):
-            bot.reply_to(message, response[x:x+4000])
-    else:
-        bot.reply_to(message, response)
+    user_id = event.sender_id
+    user_message = event.raw_text
+    
+    # إرسال إشارة كتابة
+    async with bot.action(event.chat_id, 'typing'):
+        response = await get_ai_response(user_id, user_message)
+        
+        # تقسيم الرد الطويل
+        if len(response) > 4000:
+            for x in range(0, len(response), 4000):
+                await event.reply(response[x:x+4000])
+        else:
+            await event.reply(response)
 
 # ========================
 # تشغيل البوت
 # ========================
+async def main():
+    """تشغيل البوت"""
+    logger.info("🤖 بدء تشغيل بوت تيليجرام مع Groq AI (باستخدام Telethon)...")
+    logger.info(f"✅ يتوفر {len(AVAILABLE_MODELS)} نموذجاً")
+    logger.info("🎯 البوت يعمل الآن! اضغط Ctrl+C للإيقاف")
+    
+    await bot.start()
+    await bot.run_until_disconnected()
+
 if __name__ == "__main__":
-    print("🤖 بدء تشغيل البوت...")
-    print(f"✅ يتوفر {len(AVAILABLE_MODELS)} نموذجاً")
-    print("🎯 البوت يعمل الآن!")
-    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 تم إيقاف البوت")
