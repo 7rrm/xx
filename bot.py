@@ -8,7 +8,6 @@ import os
 from telethon import TelegramClient, events
 from telethon.tl.types import Message
 from groq import Groq
-from dotenv import load_dotenv
 import logging
 
 # تحميل متغيرات البيئة
