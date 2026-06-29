@@ -1,4 +1,2 @@
-requests
-pyTelegramBotAPI
-yt-dlp>=2026.2.4
-telebot
+python-telegram-bot==20.7
+pytz==2024.1
