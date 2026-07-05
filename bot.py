@@ -6,7 +6,7 @@ from telegram.error import BadRequest, TimedOut
 import logging
 
 # الإعدادات الأساسية
-TOKEN = "7695128328:AAH4uPUi1P_VSanVbiYAQ13JlpJ5EzwcxUw"
+TOKEN = "7695128328:AAGRXoRu0F_sSaxJJLxdXMq5ri5RnHalCGI"
 CHANNEL_ID = -1002551837124
 BAGHDAD_TZ = pytz.timezone('Asia/Baghdad')
 
